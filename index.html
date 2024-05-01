@@ -1,0 +1,5681 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>2021至2023年天气折线图</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script> <!-- 引入Chart.js -->
+</head>
+<style>
+    canvas {
+        margin-bottom: 30px;
+    }
+</style>
+<body>
+<h1>2021～2023年苏州、北京、广州等城市历史天气对比</h1>
+<div style="padding: 10px">
+    <canvas id="tempChart"></canvas>
+    <canvas id="extremTempChart"></canvas>
+    <canvas id="airQualityChart"></canvas>
+</div>
+
+<script>
+// 用于格式转换
+function convertDataToChartFormat(allData) {
+  // 用于存储转换后的数据，结构为 { city: [chartData] }
+  const chartDataByCity = {}
+
+  // 遍历所有数据
+  Object.keys(allData).forEach(key => {
+      // key 格式为 `city_yearmonth`，例如 `suzhou_202101`
+      const city = key.split('_')[0];
+      const label = key.split('_')[1]; // 年月
+
+      // 查找当前月份的数据，如果没有找到则使用一个占位符
+      let extremeHigh = 'N/A'; // 极端高温的占位符
+      let extremeLow = 'N/A';  // 极端低温的占位符
+      let high = 'N/A';        // 平均高温的占位符
+      let low = 'N/A';         // 平均低温的占位符
+      let airQuality = 'N/A';  // 平均空气质量指数的占位符
+
+      // 如果当前年份有该月份的数据，则更新极端温度值
+      if (allData[key]) {
+        high = parseInt(allData[key][0].value);
+        low = parseInt(allData[key][1].value);
+        extremeHigh = parseInt(allData[key][2].value);
+        extremeLow = parseInt(allData[key][3].value);
+        airQuality = parseInt(allData[key][4].value);
+      }
+
+      // 添加到图表数据数组中
+      if (!chartDataByCity[city]) {
+        chartDataByCity[city] = [];
+      }
+      chartDataByCity[city].push({
+        label: label,
+        high,
+        low,
+        extremeHigh,
+        extremeLow,
+        airQuality
+      });
+  });
+
+  return chartDataByCity;
+}
+
+// 画图共用的一些选项
+const cityStyles = {
+    0: {
+        borderColor: '#ff9933',
+        backgroundColor: 'rgba(255, 166, 66, 0.2)',
+    },
+    1: {
+        borderColor: '#00ffff',
+        backgroundColor: 'rgba(0, 255, 255, 0.2)',
+    },
+    2: {
+        borderColor: '#ff0000',
+        backgroundColor: 'rgba(255, 0, 0, 0.2)',
+    },
+    3: {
+        borderColor: '#ffff33',
+        backgroundColor: 'rgba(255, 255, 66, 0.2)',
+        borderDash: [5, 2],
+        borderDashOffset: 0,
+    },
+    4: {
+        borderColor: '#0000ff',
+        backgroundColor: 'rgba(0, 0, 255, 0.2)',
+        borderDash: [5, 2],
+        borderDashOffset: 0,
+    },
+    5: {
+        borderColor: '#ffff00',
+        backgroundColor: 'rgba(255, 255, 0, 0.2)',
+        borderDash: [5, 2],
+        borderDashOffset: 0,
+    },
+    6: {
+        borderColor: '#ff8000',
+        backgroundColor: 'rgba(255, 128, 0, 0.2)',
+        borderDash: [5, 2],
+        borderDashOffset: 0,
+    },
+};
+
+const getChartOptions = (title, yLabelString= '温度 (℃)', yUnit=' °C') =>(
+{
+    responsive: true,
+    scales: {
+        x: {
+            display: true,
+            scaleLabel: {
+                display: true,
+                labelString: '月份'
+            }
+        },
+        y: {
+            display: true,
+            scaleLabel: {
+                display: true,
+                labelString: yLabelString,
+            },
+            ...(yLabelString === '温度 (℃)' ? {min: -25,
+            max: 45,} : {})
+        }
+    },
+    interaction: {
+        mode: 'nearest',
+        axis: 'x', // 只在x轴上启用 hover 功能
+    },
+    hover: {
+        mode: 'nearest',
+        intersect: true
+    },
+    plugins: {
+        title: {
+            text: title,
+            display: true
+        },
+        legend: {
+            display: true,
+        },
+        tooltip: {
+            callbacks: {
+                label: function(context) {
+                    // console.log(context);
+                    let label = context.dataset.label || '';
+                    if (label) {
+                        label += ': ';
+                    }
+                    if (context.parsed !== null) {
+                        label += context.raw + yUnit;
+                    }
+                    return label;
+                }
+            }
+        }
+    }
+});
+
+// 画平均高温/平均低温图
+function createTempChar(chartDataByCity) {
+    const allChartData = {
+        labels: [], // 所有城市共有的日期标签
+        datasets: []
+    };
+    
+    // 遍历每个城市的数据，添加到全局数据结构中
+    Object.keys(chartDataByCity).forEach((cityKey, idx) => {
+        const cityStyle = cityStyles[idx % Object.keys(cityStyles).length];
+        const chartData = chartDataByCity[cityKey];
+        allChartData.labels = chartData.map(data => data.label); // 假设所有城市有相同的日期标签
+        allChartData.datasets.push({
+            label: `${cityKey} 高温`,
+            data: chartData.map(data => data.high), // 平均高温数据
+            ...cityStyle,
+            hidden: idx > 2, // 默认只显示前三个城市
+            fill: '+1',
+        });
+        allChartData.datasets.push({
+            label: `${cityKey} 低温`,
+            data: chartData.map(data => data.low), // 平均低温数据
+            ...cityStyle,
+            hidden: idx > 2, // 默认只显示前三个城市
+            fill: '-1',
+        });
+    });
+    
+    // 初始化图表
+    const ctx = document.getElementById('tempChart').getContext('2d');
+    new Chart(ctx, {
+        type: 'line',
+        data: allChartData,
+        options: getChartOptions('平均温度折线图'),
+    });
+
+}    
+
+// 画极端高温/极端低温图
+function createExtremTempChar(chartDataByCity) {
+    const allChartData = {
+        labels: [], // 所有城市共有的日期标签
+        datasets: []
+    };
+    
+    // 遍历每个城市的数据，添加到全局数据结构中
+    Object.keys(chartDataByCity).forEach((cityKey, idx) => {
+        const cityStyle = cityStyles[idx % Object.keys(cityStyles).length];
+        const chartData = chartDataByCity[cityKey];
+        allChartData.labels = chartData.map(data => data.label); // 假设所有城市有相同的日期标签
+        allChartData.datasets.push({
+            label: `${cityKey} 极端高温`,
+            data: chartData.map(data => data.extremeHigh), // 极端高温数据
+            ...cityStyle,
+            hidden: idx > 2, // 默认只显示前三个城市
+            fill: '+1',
+        });
+        allChartData.datasets.push({
+            label: `${cityKey} 极端低温`,
+            data: chartData.map(data => data.extremeLow), // 极端低温数据
+            ...cityStyle,
+            hidden: idx > 2, // 默认只显示前三个城市
+            fill: '-1',
+        });
+    });
+    
+    // 初始化图表
+    const ctx = document.getElementById('extremTempChart').getContext('2d');
+    new Chart(ctx, {
+        type: 'line',
+        data: allChartData,
+        options: getChartOptions('极端温度折线图'),
+    });
+
+}
+
+// 画空气质量图
+function createAirQualityChar(chartDataByCity) {
+    const allChartData = {
+        labels: [], // 所有城市共有的日期标签
+        datasets: []
+    };
+    
+    // 遍历每个城市的数据，添加到全局数据结构中
+    Object.keys(chartDataByCity).forEach((cityKey, idx) => {
+        const cityStyle = cityStyles[idx % Object.keys(cityStyles).length];
+        const chartData = chartDataByCity[cityKey];
+        allChartData.labels = chartData.map(data => data.label); // 假设所有城市有相同的日期标签
+        allChartData.datasets.push({
+            label: `${cityKey} 空气质量`,
+            data: chartData.map(data => data.airQuality), // 空气质量数据
+            ...cityStyle,
+            hidden: false, // 默认所有数据集显示
+        });
+    });
+    
+    // 初始化图表
+    const ctx = document.getElementById('airQualityChart').getContext('2d');
+    new Chart(ctx, {
+        type: 'line',
+        data: allChartData,
+        options: getChartOptions('空气质量指数折线图', '空气质量指数', ''),
+    });
+
+}
+
+</script>
+<script>
+// 原始数据
+const allData = {
+    "suzhou_202101": [
+        {
+            "value": "9℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "1℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "17℃",
+            "label": "极端高温"
+        },
+        {
+            "value": "-8℃",
+            "label": "极端低温"
+        },
+        {
+            "value": "90",
+            "label": "平均空气质量指数"
+        },
+        {
+            "value": "33",
+            "label": "空气最好(01/19)"
+        },
+        {
+            "value": "148",
+            "label": "空气最差(01/12)"
+        }
+    ],
+    "suzhou_202102": [
+        {
+            "value": "14℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "6℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "26℃",
+            "label": "极端高温"
+        },
+        {
+            "value": "-2℃",
+            "label": "极端低温"
+        },
+        {
+            "value": "59",
+            "label": "平均空气质量指数"
+        },
+        {
+            "value": "16",
+            "label": "空气最好(02/27)"
+        },
+        {
+            "value": "102",
+            "label": "空气最差(02/03)"
+        }
+    ],
+    "suzhou_202103": [
+        {
+            "value": "15℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "9℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "26℃",
+            "label": "极端高温"
+        },
+        {
+            "value": "4℃",
+            "label": "极端低温"
+        },
+        {
+            "value": "86",
+            "label": "平均空气质量指数"
+        },
+        {
+            "value": "15",
+            "label": "空气最好(03/01)"
+        },
+        {
+            "value": "157",
+            "label": "空气最差(03/20)"
+        }
+    ],
+    "suzhou_202104": [
+        {
+            "value": "19℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "12℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "30℃",
+            "label": "极端高温"
+        },
+        {
+            "value": "6℃",
+            "label": "极端低温"
+        },
+        {
+            "value": "73",
+            "label": "平均空气质量指数"
+        },
+        {
+            "value": "22",
+            "label": "空气最好(04/03)"
+        },
+        {
+            "value": "125",
+            "label": "空气最差(04/16)"
+        }
+    ],
+    "suzhou_202105": [
+        {
+            "value": "26℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "18℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "36℃",
+            "label": "极端高温"
+        },
+        {
+            "value": "13℃",
+            "label": "极端低温"
+        },
+        {
+            "value": "59",
+            "label": "平均空气质量指数"
+        },
+        {
+            "value": "19",
+            "label": "空气最好(05/04)"
+        },
+        {
+            "value": "100",
+            "label": "空气最差(05/07)"
+        }
+    ],
+    "suzhou_202106": [
+        {
+            "value": "29℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "22℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "35℃",
+            "label": "极端高温"
+        },
+        {
+            "value": "19℃",
+            "label": "极端低温"
+        },
+        {
+            "value": "49",
+            "label": "平均空气质量指数"
+        },
+        {
+            "value": "17",
+            "label": "空气最好(06/02)"
+        },
+        {
+            "value": "82",
+            "label": "空气最差(06/14)"
+        }
+    ],
+    "suzhou_202107": [
+        {
+            "value": "32℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "25℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "38℃",
+            "label": "极端高温"
+        },
+        {
+            "value": "22℃",
+            "label": "极端低温"
+        },
+        {
+            "value": "35",
+            "label": "平均空气质量指数"
+        },
+        {
+            "value": "9",
+            "label": "空气最好(07/27)"
+        },
+        {
+            "value": "62",
+            "label": "空气最差(07/11)"
+        }
+    ],
+    "suzhou_202108": [
+        {
+            "value": "30℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "25℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "35℃",
+            "label": "极端高温"
+        },
+        {
+            "value": "19℃",
+            "label": "极端低温"
+        },
+        {
+            "value": "56",
+            "label": "平均空气质量指数"
+        },
+        {
+            "value": "12",
+            "label": "空气最好(08/05)"
+        },
+        {
+            "value": "101",
+            "label": "空气最差(08/10)"
+        }
+    ],
+    "suzhou_202109": [
+        {
+            "value": "29℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "22℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "35℃",
+            "label": "极端高温"
+        },
+        {
+            "value": "15℃",
+            "label": "极端低温"
+        },
+        {
+            "value": "45",
+            "label": "平均空气质量指数"
+        },
+        {
+            "value": "8",
+            "label": "空气最好(09/13)"
+        },
+        {
+            "value": "83",
+            "label": "空气最差(09/28)"
+        }
+    ],
+    "suzhou_202110": [
+        {
+            "value": "22℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "15℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "33℃",
+            "label": "极端高温"
+        },
+        {
+            "value": "1℃",
+            "label": "极端低温"
+        },
+        {
+            "value": "66",
+            "label": "平均空气质量指数"
+        },
+        {
+            "value": "12",
+            "label": "空气最好(10/03)"
+        },
+        {
+            "value": "120",
+            "label": "空气最差(10/31)"
+        }
+    ],
+    "suzhou_202111": [
+        {
+            "value": "17℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "9℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "23℃",
+            "label": "极端高温"
+        },
+        {
+            "value": "2℃",
+            "label": "极端低温"
+        },
+        {
+            "value": "61",
+            "label": "平均空气质量指数"
+        },
+        {
+            "value": "26",
+            "label": "空气最好(11/06)"
+        },
+        {
+            "value": "96",
+            "label": "空气最差(11/26)"
+        }
+    ],
+    "suzhou_202112": [
+        {
+            "value": "11℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "2℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "17℃",
+            "label": "极端高温"
+        },
+        {
+            "value": "-6℃",
+            "label": "极端低温"
+        },
+        {
+            "value": "71",
+            "label": "平均空气质量指数"
+        },
+        {
+            "value": "14",
+            "label": "空气最好(12/24)"
+        },
+        {
+            "value": "129",
+            "label": "空气最差(12/11)"
+        }
+    ],
+    "beijing_202101": [
+        {
+            "value": "1℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "-7℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "9℃",
+            "label": "极端高温"
+        },
+        {
+            "value": "-19℃",
+            "label": "极端低温"
+        },
+        {
+            "value": "106",
+            "label": "平均空气质量指数"
+        },
+        {
+            "value": "14",
+            "label": "空气最好(01/02)"
+        },
+        {
+            "value": "199",
+            "label": "空气最差(01/13)"
+        }
+    ],
+    "beijing_202102": [
+        {
+            "value": "9℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "-2℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "25℃",
+            "label": "极端高温"
+        },
+        {
+            "value": "-9℃",
+            "label": "极端低温"
+        },
+        {
+            "value": "140",
+            "label": "平均空气质量指数"
+        },
+        {
+            "value": "15",
+            "label": "空气最好(02/07)"
+        },
+        {
+            "value": "266",
+            "label": "空气最差(02/11)"
+        }
+    ],
+    "beijing_202103": [
+        {
+            "value": "13℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "4℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "24℃",
+            "label": "极端高温"
+        },
+        {
+            "value": "-6℃",
+            "label": "极端低温"
+        },
+        {
+            "value": "199",
+            "label": "平均空气质量指数"
+        },
+        {
+            "value": "27",
+            "label": "空气最好(03/20)"
+        },
+        {
+            "value": "372",
+            "label": "空气最差(03/15)"
+        }
+    ],
+    "beijing_202104": [
+        {
+            "value": "19℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "9℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "28℃",
+            "label": "极端高温"
+        },
+        {
+            "value": "5℃",
+            "label": "极端低温"
+        },
+        {
+            "value": "84",
+            "label": "平均空气质量指数"
+        },
+        {
+            "value": "17",
+            "label": "空气最好(04/29)"
+        },
+        {
+            "value": "152",
+            "label": "空气最差(04/15)"
+        }
+    ],
+    "beijing_202105": [
+        {
+            "value": "25℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "15℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "32℃",
+            "label": "极端高温"
+        },
+        {
+            "value": "8℃",
+            "label": "极端低温"
+        },
+        {
+            "value": "247",
+            "label": "平均空气质量指数"
+        },
+        {
+            "value": "6",
+            "label": "空气最好(05/15)"
+        },
+        {
+            "value": "488",
+            "label": "空气最差(05/06)"
+        }
+    ],
+    "beijing_202106": [
+        {
+            "value": "30℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "20℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "35℃",
+            "label": "极端高温"
+        },
+        {
+            "value": "14℃",
+            "label": "极端低温"
+        },
+        {
+            "value": "52",
+            "label": "平均空气质量指数"
+        },
+        {
+            "value": "5",
+            "label": "空气最好(06/03)"
+        },
+        {
+            "value": "100",
+            "label": "空气最差(06/12)"
+        }
+    ],
+    "beijing_202107": [
+        {
+            "value": "30℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "22℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "36℃",
+            "label": "极端高温"
+        },
+        {
+            "value": "17℃",
+            "label": "极端低温"
+        },
+        {
+            "value": "36",
+            "label": "平均空气质量指数"
+        },
+        {
+            "value": "8",
+            "label": "空气最好(07/18)"
+        },
+        {
+            "value": "64",
+            "label": "空气最差(07/09)"
+        }
+    ],
+    "beijing_202108": [
+        {
+            "value": "29℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "21℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "34℃",
+            "label": "极端高温"
+        },
+        {
+            "value": "17℃",
+            "label": "极端低温"
+        },
+        {
+            "value": "35",
+            "label": "平均空气质量指数"
+        },
+        {
+            "value": "8",
+            "label": "空气最好(08/04)"
+        },
+        {
+            "value": "63",
+            "label": "空气最差(08/07)"
+        }
+    ],
+    "beijing_202109": [
+        {
+            "value": "25℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "17℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "33℃",
+            "label": "极端高温"
+        },
+        {
+            "value": "11℃",
+            "label": "极端低温"
+        },
+        {
+            "value": "37",
+            "label": "平均空气质量指数"
+        },
+        {
+            "value": "9",
+            "label": "空气最好(09/26)"
+        },
+        {
+            "value": "65",
+            "label": "空气最差(09/09)"
+        }
+    ],
+    "beijing_202110": [
+        {
+            "value": "17℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "7℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "27℃",
+            "label": "极端高温"
+        },
+        {
+            "value": "-5℃",
+            "label": "极端低温"
+        },
+        {
+            "value": "101",
+            "label": "平均空气质量指数"
+        },
+        {
+            "value": "7",
+            "label": "空气最好(10/15)"
+        },
+        {
+            "value": "195",
+            "label": "空气最差(10/25)"
+        }
+    ],
+    "beijing_202111": [
+        {
+            "value": "10℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "0℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "18℃",
+            "label": "极端高温"
+        },
+        {
+            "value": "-5℃",
+            "label": "极端低温"
+        },
+        {
+            "value": "97",
+            "label": "平均空气质量指数"
+        },
+        {
+            "value": "14",
+            "label": "空气最好(11/07)"
+        },
+        {
+            "value": "180",
+            "label": "空气最差(11/05)"
+        }
+    ],
+    "beijing_202112": [
+        {
+            "value": "5℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "-4℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "14℃",
+            "label": "极端高温"
+        },
+        {
+            "value": "-14℃",
+            "label": "极端低温"
+        },
+        {
+            "value": "87",
+            "label": "平均空气质量指数"
+        },
+        {
+            "value": "6",
+            "label": "空气最好(12/24)"
+        },
+        {
+            "value": "169",
+            "label": "空气最差(12/22)"
+        }
+    ],
+    "guangzhou_202101": [
+        {
+            "value": "19℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "9℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "26℃",
+            "label": "极端高温"
+        },
+        {
+            "value": "4℃",
+            "label": "极端低温"
+        },
+        {
+            "value": "156",
+            "label": "平均空气质量指数"
+        },
+        {
+            "value": "33",
+            "label": "空气最好(01/28)"
+        },
+        {
+            "value": "280",
+            "label": "空气最差(01/16)"
+        }
+    ],
+    "guangzhou_202102": [
+        {
+            "value": "24℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "14℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "29℃",
+            "label": "极端高温"
+        },
+        {
+            "value": "11℃",
+            "label": "极端低温"
+        },
+        {
+            "value": "46",
+            "label": "平均空气质量指数"
+        },
+        {
+            "value": "10",
+            "label": "空气最好(02/10)"
+        },
+        {
+            "value": "83",
+            "label": "空气最差(02/01)"
+        }
+    ],
+    "guangzhou_202103": [
+        {
+            "value": "24℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "18℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "31℃",
+            "label": "极端高温"
+        },
+        {
+            "value": "13℃",
+            "label": "极端低温"
+        },
+        {
+            "value": "64",
+            "label": "平均空气质量指数"
+        },
+        {
+            "value": "28",
+            "label": "空气最好(03/21)"
+        },
+        {
+            "value": "100",
+            "label": "空气最差(03/14)"
+        }
+    ],
+    "guangzhou_202104": [
+        {
+            "value": "27℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "20℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "34℃",
+            "label": "极端高温"
+        },
+        {
+            "value": "17℃",
+            "label": "极端低温"
+        },
+        {
+            "value": "45",
+            "label": "平均空气质量指数"
+        },
+        {
+            "value": "16",
+            "label": "空气最好(04/25)"
+        },
+        {
+            "value": "74",
+            "label": "空气最差(04/19)"
+        }
+    ],
+    "guangzhou_202105": [
+        {
+            "value": "33℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "24℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "36℃",
+            "label": "极端高温"
+        },
+        {
+            "value": "20℃",
+            "label": "极端低温"
+        },
+        {
+            "value": "33",
+            "label": "平均空气质量指数"
+        },
+        {
+            "value": "13",
+            "label": "空气最好(05/04)"
+        },
+        {
+            "value": "54",
+            "label": "空气最差(05/01)"
+        }
+    ],
+    "guangzhou_202106": [
+        {
+            "value": "32℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "25℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "36℃",
+            "label": "极端高温"
+        },
+        {
+            "value": "23℃",
+            "label": "极端低温"
+        },
+        {
+            "value": "60",
+            "label": "平均空气质量指数"
+        },
+        {
+            "value": "11",
+            "label": "空气最好(06/23)"
+        },
+        {
+            "value": "109",
+            "label": "空气最差(06/06)"
+        }
+    ],
+    "guangzhou_202107": [
+        {
+            "value": "34℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "25℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "38℃",
+            "label": "极端高温"
+        },
+        {
+            "value": "24℃",
+            "label": "极端低温"
+        },
+        {
+            "value": "34",
+            "label": "平均空气质量指数"
+        },
+        {
+            "value": "13",
+            "label": "空气最好(07/19)"
+        },
+        {
+            "value": "55",
+            "label": "空气最差(07/25)"
+        }
+    ],
+    "guangzhou_202108": [
+        {
+            "value": "33℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "25℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "36℃",
+            "label": "极端高温"
+        },
+        {
+            "value": "24℃",
+            "label": "极端低温"
+        },
+        {
+            "value": "30",
+            "label": "平均空气质量指数"
+        },
+        {
+            "value": "13",
+            "label": "空气最好(08/26)"
+        },
+        {
+            "value": "48",
+            "label": "空气最差(08/05)"
+        }
+    ],
+    "guangzhou_202109": [
+        {
+            "value": "34℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "25℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "36℃",
+            "label": "极端高温"
+        },
+        {
+            "value": "24℃",
+            "label": "极端低温"
+        },
+        {
+            "value": "51",
+            "label": "平均空气质量指数"
+        },
+        {
+            "value": "17",
+            "label": "空气最好(09/19)"
+        },
+        {
+            "value": "85",
+            "label": "空气最差(09/30)"
+        }
+    ],
+    "guangzhou_202110": [
+        {
+            "value": "27℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "19℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "35℃",
+            "label": "极端高温"
+        },
+        {
+            "value": "11℃",
+            "label": "极端低温"
+        },
+        {
+            "value": "42",
+            "label": "平均空气质量指数"
+        },
+        {
+            "value": "10",
+            "label": "空气最好(10/21)"
+        },
+        {
+            "value": "74",
+            "label": "空气最差(10/29)"
+        }
+    ],
+    "guangzhou_202111": [
+        {
+            "value": "24℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "14℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "31℃",
+            "label": "极端高温"
+        },
+        {
+            "value": "8℃",
+            "label": "极端低温"
+        },
+        {
+            "value": "43",
+            "label": "平均空气质量指数"
+        },
+        {
+            "value": "21",
+            "label": "空气最好(11/08)"
+        },
+        {
+            "value": "65",
+            "label": "空气最差(11/30)"
+        }
+    ],
+    "guangzhou_202112": [
+        {
+            "value": "20℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "10℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "27℃",
+            "label": "极端高温"
+        },
+        {
+            "value": "-1℃",
+            "label": "极端低温"
+        },
+        {
+            "value": "76",
+            "label": "平均空气质量指数"
+        },
+        {
+            "value": "24",
+            "label": "空气最好(12/16)"
+        },
+        {
+            "value": "129",
+            "label": "空气最差(12/24)"
+        }
+    ],
+    "suzhou_202201": [
+        {
+            "value": "8℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "1℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "14℃",
+            "label": "极端高温"
+        },
+        {
+            "value": "-3℃",
+            "label": "极端低温"
+        },
+        {
+            "value": "83",
+            "label": "平均空气质量指数"
+        },
+        {
+            "value": "18",
+            "label": "空气最好(01/05)"
+        },
+        {
+            "value": "149",
+            "label": "空气最差(01/10)"
+        }
+    ],
+    "suzhou_202202": [
+        {
+            "value": "8℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "1℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "21℃",
+            "label": "极端高温"
+        },
+        {
+            "value": "-4℃",
+            "label": "极端低温"
+        },
+        {
+            "value": "74",
+            "label": "平均空气质量指数"
+        },
+        {
+            "value": "21",
+            "label": "空气最好(02/03)"
+        },
+        {
+            "value": "128",
+            "label": "空气最差(02/14)"
+        }
+    ],
+    "suzhou_202203": [
+        {
+            "value": "17℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "8℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "27℃",
+            "label": "极端高温"
+        },
+        {
+            "value": "1℃",
+            "label": "极端低温"
+        },
+        {
+            "value": "65",
+            "label": "平均空气质量指数"
+        },
+        {
+            "value": "14",
+            "label": "空气最好(03/20)"
+        },
+        {
+            "value": "116",
+            "label": "空气最差(03/01)"
+        }
+    ],
+    "suzhou_202204": [
+        {
+            "value": "22℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "12℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "33℃",
+            "label": "极端高温"
+        },
+        {
+            "value": "4℃",
+            "label": "极端低温"
+        },
+        {
+            "value": "51",
+            "label": "平均空气质量指数"
+        },
+        {
+            "value": "15",
+            "label": "空气最好(04/24)"
+        },
+        {
+            "value": "87",
+            "label": "空气最差(04/07)"
+        }
+    ],
+    "suzhou_202205": [
+        {
+            "value": "26℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "16℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "32℃",
+            "label": "极端高温"
+        },
+        {
+            "value": "11℃",
+            "label": "极端低温"
+        },
+        {
+            "value": "64",
+            "label": "平均空气质量指数"
+        },
+        {
+            "value": "13",
+            "label": "空气最好(05/31)"
+        },
+        {
+            "value": "116",
+            "label": "空气最差(05/02)"
+        }
+    ],
+    "suzhou_202206": [
+        {
+            "value": "31℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "23℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "39℃",
+            "label": "极端高温"
+        },
+        {
+            "value": "17℃",
+            "label": "极端低温"
+        },
+        {
+            "value": "46",
+            "label": "平均空气质量指数"
+        },
+        {
+            "value": "12",
+            "label": "空气最好(06/27)"
+        },
+        {
+            "value": "80",
+            "label": "空气最差(06/09)"
+        }
+    ],
+    "suzhou_202207": [
+        {
+            "value": "34℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "27℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "40℃",
+            "label": "极端高温"
+        },
+        {
+            "value": "22℃",
+            "label": "极端低温"
+        },
+        {
+            "value": "42",
+            "label": "平均空气质量指数"
+        },
+        {
+            "value": "15",
+            "label": "空气最好(07/01)"
+        },
+        {
+            "value": "70",
+            "label": "空气最差(07/12)"
+        }
+    ],
+    "suzhou_202208": [
+        {
+            "value": "34℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "26℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "39℃",
+            "label": "极端高温"
+        },
+        {
+            "value": "19℃",
+            "label": "极端低温"
+        },
+        {
+            "value": "31",
+            "label": "平均空气质量指数"
+        },
+        {
+            "value": "12",
+            "label": "空气最好(08/28)"
+        },
+        {
+            "value": "50",
+            "label": "空气最差(08/02)"
+        }
+    ],
+    "suzhou_202209": [
+        {
+            "value": "27℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "19℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "34℃",
+            "label": "极端高温"
+        },
+        {
+            "value": "16℃",
+            "label": "极端低温"
+        },
+        {
+            "value": "51",
+            "label": "平均空气质量指数"
+        },
+        {
+            "value": "10",
+            "label": "空气最好(09/13)"
+        },
+        {
+            "value": "92",
+            "label": "空气最差(09/08)"
+        }
+    ],
+    "suzhou_202210": [
+        {
+            "value": "21℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "12℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "38℃",
+            "label": "极端高温"
+        },
+        {
+            "value": "6℃",
+            "label": "极端低温"
+        },
+        {
+            "value": "39",
+            "label": "平均空气质量指数"
+        },
+        {
+            "value": "8",
+            "label": "空气最好(10/03)"
+        },
+        {
+            "value": "70",
+            "label": "空气最差(10/24)"
+        }
+    ],
+    "suzhou_202211": [
+        {
+            "value": "17℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "10℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "23℃",
+            "label": "极端高温"
+        },
+        {
+            "value": "-1℃",
+            "label": "极端低温"
+        },
+        {
+            "value": "57",
+            "label": "平均空气质量指数"
+        },
+        {
+            "value": "13",
+            "label": "空气最好(11/04)"
+        },
+        {
+            "value": "101",
+            "label": "空气最差(11/23)"
+        }
+    ],
+    "suzhou_202212": [
+        {
+            "value": "8℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "0℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "12℃",
+            "label": "极端高温"
+        },
+        {
+            "value": "-6℃",
+            "label": "极端低温"
+        },
+        {
+            "value": "115",
+            "label": "平均空气质量指数"
+        },
+        {
+            "value": "24",
+            "label": "空气最好(12/23)"
+        },
+        {
+            "value": "206",
+            "label": "空气最差(12/08)"
+        }
+    ],
+    "beijing_202201": [
+        {
+            "value": "3℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "-5℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "14℃",
+            "label": "极端高温"
+        },
+        {
+            "value": "-13℃",
+            "label": "极端低温"
+        },
+        {
+            "value": "125",
+            "label": "平均空气质量指数"
+        },
+        {
+            "value": "4",
+            "label": "空气最好(01/15)"
+        },
+        {
+            "value": "247",
+            "label": "空气最差(01/30)"
+        }
+    ],
+    "beijing_202202": [
+        {
+            "value": "5℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "-5℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "16℃",
+            "label": "极端高温"
+        },
+        {
+            "value": "-10℃",
+            "label": "极端低温"
+        },
+        {
+            "value": "80",
+            "label": "平均空气质量指数"
+        },
+        {
+            "value": "11",
+            "label": "空气最好(02/05)"
+        },
+        {
+            "value": "149",
+            "label": "空气最差(02/25)"
+        }
+    ],
+    "beijing_202203": [
+        {
+            "value": "12℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "2℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "20℃",
+            "label": "极端高温"
+        },
+        {
+            "value": "-2℃",
+            "label": "极端低温"
+        },
+        {
+            "value": "108",
+            "label": "平均空气质量指数"
+        },
+        {
+            "value": "16",
+            "label": "空气最好(03/31)"
+        },
+        {
+            "value": "200",
+            "label": "空气最差(03/10)"
+        }
+    ],
+    "beijing_202204": [
+        {
+            "value": "22℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "9℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "31℃",
+            "label": "极端高温"
+        },
+        {
+            "value": "2℃",
+            "label": "极端低温"
+        },
+        {
+            "value": "75",
+            "label": "平均空气质量指数"
+        },
+        {
+            "value": "10",
+            "label": "空气最好(04/30)"
+        },
+        {
+            "value": "140",
+            "label": "空气最差(04/10)"
+        }
+    ],
+    "beijing_202205": [
+        {
+            "value": "26℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "14℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "36℃",
+            "label": "极端高温"
+        },
+        {
+            "value": "8℃",
+            "label": "极端低温"
+        },
+        {
+            "value": "40",
+            "label": "平均空气质量指数"
+        },
+        {
+            "value": "0",
+            "label": "空气最好(05/24)"
+        },
+        {
+            "value": "80",
+            "label": "空气最差(05/19)"
+        }
+    ],
+    "beijing_202206": [
+        {
+            "value": "27℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "17℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "36℃",
+            "label": "极端高温"
+        },
+        {
+            "value": "3℃",
+            "label": "极端低温"
+        },
+        {
+            "value": "47",
+            "label": "平均空气质量指数"
+        },
+        {
+            "value": "8",
+            "label": "空气最好(06/14)"
+        },
+        {
+            "value": "87",
+            "label": "空气最差(06/10)"
+        }
+    ],
+    "beijing_202207": [
+        {
+            "value": "31℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "22℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "36℃",
+            "label": "极端高温"
+        },
+        {
+            "value": "20℃",
+            "label": "极端低温"
+        },
+        {
+            "value": "42",
+            "label": "平均空气质量指数"
+        },
+        {
+            "value": "0",
+            "label": "空气最好(07/12)"
+        },
+        {
+            "value": "85",
+            "label": "空气最差(07/26)"
+        }
+    ],
+    "beijing_202208": [
+        {
+            "value": "29℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "21℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "36℃",
+            "label": "极端高温"
+        },
+        {
+            "value": "14℃",
+            "label": "极端低温"
+        },
+        {
+            "value": "37",
+            "label": "平均空气质量指数"
+        },
+        {
+            "value": "0",
+            "label": "空气最好(08/07)"
+        },
+        {
+            "value": "74",
+            "label": "空气最差(08/13)"
+        }
+    ],
+    "beijing_202209": [
+        {
+            "value": "28℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "16℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "32℃",
+            "label": "极端高温"
+        },
+        {
+            "value": "10℃",
+            "label": "极端低温"
+        },
+        {
+            "value": "52",
+            "label": "平均空气质量指数"
+        },
+        {
+            "value": "9",
+            "label": "空气最好(09/16)"
+        },
+        {
+            "value": "95",
+            "label": "空气最差(09/29)"
+        }
+    ],
+    "beijing_202210": [
+        {
+            "value": "18℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "7℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "24℃",
+            "label": "极端高温"
+        },
+        {
+            "value": "2℃",
+            "label": "极端低温"
+        },
+        {
+            "value": "108",
+            "label": "平均空气质量指数"
+        },
+        {
+            "value": "5",
+            "label": "空气最好(10/03)"
+        },
+        {
+            "value": "212",
+            "label": "空气最差(10/25)"
+        }
+    ],
+    "beijing_202211": [
+        {
+            "value": "11℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "1℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "17℃",
+            "label": "极端高温"
+        },
+        {
+            "value": "-9℃",
+            "label": "极端低温"
+        },
+        {
+            "value": "108",
+            "label": "平均空气质量指数"
+        },
+        {
+            "value": "8",
+            "label": "空气最好(11/18)"
+        },
+        {
+            "value": "208",
+            "label": "空气最差(11/24)"
+        }
+    ],
+    "beijing_202212": [
+        {
+            "value": "2℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "-7℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "9℃",
+            "label": "极端高温"
+        },
+        {
+            "value": "-12℃",
+            "label": "极端低温"
+        },
+        {
+            "value": "83",
+            "label": "平均空气质量指数"
+        },
+        {
+            "value": "0",
+            "label": "空气最好(12/20)"
+        },
+        {
+            "value": "166",
+            "label": "空气最差(12/09)"
+        }
+    ],
+    "guangzhou_202201": [
+        {
+            "value": "19℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "12℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "25℃",
+            "label": "极端高温"
+        },
+        {
+            "value": "6℃",
+            "label": "极端低温"
+        },
+        {
+            "value": "58",
+            "label": "平均空气质量指数"
+        },
+        {
+            "value": "14",
+            "label": "空气最好(01/29)"
+        },
+        {
+            "value": "102",
+            "label": "空气最差(01/15)"
+        }
+    ],
+    "guangzhou_202202": [
+        {
+            "value": "15℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "9℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "25℃",
+            "label": "极端高温"
+        },
+        {
+            "value": "4℃",
+            "label": "极端低温"
+        },
+        {
+            "value": "49",
+            "label": "平均空气质量指数"
+        },
+        {
+            "value": "12",
+            "label": "空气最好(02/02)"
+        },
+        {
+            "value": "86",
+            "label": "空气最差(02/25)"
+        }
+    ],
+    "guangzhou_202203": [
+        {
+            "value": "25℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "16℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "30℃",
+            "label": "极端高温"
+        },
+        {
+            "value": "-4℃",
+            "label": "极端低温"
+        },
+        {
+            "value": "53",
+            "label": "平均空气质量指数"
+        },
+        {
+            "value": "16",
+            "label": "空气最好(03/23)"
+        },
+        {
+            "value": "91",
+            "label": "空气最差(03/11)"
+        }
+    ],
+    "guangzhou_202204": [
+        {
+            "value": "27℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "18℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "32℃",
+            "label": "极端高温"
+        },
+        {
+            "value": "10℃",
+            "label": "极端低温"
+        },
+        {
+            "value": "49",
+            "label": "平均空气质量指数"
+        },
+        {
+            "value": "14",
+            "label": "空气最好(04/18)"
+        },
+        {
+            "value": "85",
+            "label": "空气最差(04/07)"
+        }
+    ],
+    "guangzhou_202205": [
+        {
+            "value": "28℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "21℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "33℃",
+            "label": "极端高温"
+        },
+        {
+            "value": "15℃",
+            "label": "极端低温"
+        },
+        {
+            "value": "53",
+            "label": "平均空气质量指数"
+        },
+        {
+            "value": "14",
+            "label": "空气最好(05/13)"
+        },
+        {
+            "value": "93",
+            "label": "空气最差(05/03)"
+        }
+    ],
+    "guangzhou_202206": [
+        {
+            "value": "31℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "25℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "35℃",
+            "label": "极端高温"
+        },
+        {
+            "value": "22℃",
+            "label": "极端低温"
+        },
+        {
+            "value": "24",
+            "label": "平均空气质量指数"
+        },
+        {
+            "value": "11",
+            "label": "空气最好(06/17)"
+        },
+        {
+            "value": "38",
+            "label": "空气最差(06/03)"
+        }
+    ],
+    "guangzhou_202207": [
+        {
+            "value": "34℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "26℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "38℃",
+            "label": "极端高温"
+        },
+        {
+            "value": "24℃",
+            "label": "极端低温"
+        },
+        {
+            "value": "45",
+            "label": "平均空气质量指数"
+        },
+        {
+            "value": "12",
+            "label": "空气最好(07/02)"
+        },
+        {
+            "value": "79",
+            "label": "空气最差(07/31)"
+        }
+    ],
+    "guangzhou_202208": [
+        {
+            "value": "32℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "25℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "37℃",
+            "label": "极端高温"
+        },
+        {
+            "value": "24℃",
+            "label": "极端低温"
+        },
+        {
+            "value": "37",
+            "label": "平均空气质量指数"
+        },
+        {
+            "value": "9",
+            "label": "空气最好(08/09)"
+        },
+        {
+            "value": "65",
+            "label": "空气最差(08/27)"
+        }
+    ],
+    "guangzhou_202209": [
+        {
+            "value": "33℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "24℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "37℃",
+            "label": "极端高温"
+        },
+        {
+            "value": "23℃",
+            "label": "极端低温"
+        },
+        {
+            "value": "46",
+            "label": "平均空气质量指数"
+        },
+        {
+            "value": "13",
+            "label": "空气最好(09/30)"
+        },
+        {
+            "value": "79",
+            "label": "空气最差(09/13)"
+        }
+    ],
+    "guangzhou_202210": [
+        {
+            "value": "30℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "19℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "35℃",
+            "label": "极端高温"
+        },
+        {
+            "value": "15℃",
+            "label": "极端低温"
+        },
+        {
+            "value": "83",
+            "label": "平均空气质量指数"
+        },
+        {
+            "value": "21",
+            "label": "空气最好(10/29)"
+        },
+        {
+            "value": "145",
+            "label": "空气最差(10/14)"
+        }
+    ],
+    "guangzhou_202211": [
+        {
+            "value": "24℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "18℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "31℃",
+            "label": "极端高温"
+        },
+        {
+            "value": "9℃",
+            "label": "极端低温"
+        },
+        {
+            "value": "58",
+            "label": "平均空气质量指数"
+        },
+        {
+            "value": "8",
+            "label": "空气最好(11/24)"
+        },
+        {
+            "value": "108",
+            "label": "空气最差(11/12)"
+        }
+    ],
+    "guangzhou_202212": [
+        {
+            "value": "17℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "8℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "22℃",
+            "label": "极端高温"
+        },
+        {
+            "value": "4℃",
+            "label": "极端低温"
+        },
+        {
+            "value": "47",
+            "label": "平均空气质量指数"
+        },
+        {
+            "value": "20",
+            "label": "空气最好(12/01)"
+        },
+        {
+            "value": "74",
+            "label": "空气最差(12/28)"
+        }
+    ],
+    "suzhou_202301": [
+        {
+            "value": "9℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "0℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "20℃",
+            "label": "极端高温"
+        },
+        {
+            "value": "-7℃",
+            "label": "极端低温"
+        },
+        {
+            "value": "74",
+            "label": "平均空气质量指数"
+        },
+        {
+            "value": "19",
+            "label": "空气最好(01/14)"
+        },
+        {
+            "value": "130",
+            "label": "空气最差(01/06)"
+        }
+    ],
+    "suzhou_202302": [
+        {
+            "value": "8℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "2℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "16℃",
+            "label": "极端高温"
+        },
+        {
+            "value": "-1℃",
+            "label": "极端低温"
+        },
+        {
+            "value": "101",
+            "label": "平均空气质量指数"
+        },
+        {
+            "value": "21",
+            "label": "空气最好(02/25)"
+        },
+        {
+            "value": "181",
+            "label": "空气最差(02/17)"
+        }
+    ],
+    "suzhou_202303": [
+        {
+            "value": "16℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "8℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "27℃",
+            "label": "极端高温"
+        },
+        {
+            "value": "3℃",
+            "label": "极端低温"
+        },
+        {
+            "value": "68",
+            "label": "平均空气质量指数"
+        },
+        {
+            "value": "30",
+            "label": "空气最好(03/21)"
+        },
+        {
+            "value": "107",
+            "label": "空气最差(03/24)"
+        }
+    ],
+    "suzhou_202304": [
+        {
+            "value": "21℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "13℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "33℃",
+            "label": "极端高温"
+        },
+        {
+            "value": "7℃",
+            "label": "极端低温"
+        },
+        {
+            "value": "136",
+            "label": "平均空气质量指数"
+        },
+        {
+            "value": "35",
+            "label": "空气最好(04/04)"
+        },
+        {
+            "value": "237",
+            "label": "空气最差(04/12)"
+        }
+    ],
+    "suzhou_202305": [
+        {
+            "value": "25℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "18℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "36℃",
+            "label": "极端高温"
+        },
+        {
+            "value": "10℃",
+            "label": "极端低温"
+        },
+        {
+            "value": "72",
+            "label": "平均空气质量指数"
+        },
+        {
+            "value": "30",
+            "label": "空气最好(05/07)"
+        },
+        {
+            "value": "115",
+            "label": "空气最差(05/23)"
+        }
+    ],
+    "suzhou_202306": [
+        {
+            "value": "29℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "22℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "35℃",
+            "label": "极端高温"
+        },
+        {
+            "value": "19℃",
+            "label": "极端低温"
+        },
+        {
+            "value": "53",
+            "label": "平均空气质量指数"
+        },
+        {
+            "value": "15",
+            "label": "空气最好(06/30)"
+        },
+        {
+            "value": "92",
+            "label": "空气最差(06/15)"
+        }
+    ],
+    "suzhou_202307": [
+        {
+            "value": "32℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "26℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "38℃",
+            "label": "极端高温"
+        },
+        {
+            "value": "25℃",
+            "label": "极端低温"
+        },
+        {
+            "value": "37",
+            "label": "平均空气质量指数"
+        },
+        {
+            "value": "18",
+            "label": "空气最好(07/27)"
+        },
+        {
+            "value": "57",
+            "label": "空气最差(07/12)"
+        }
+    ],
+    "suzhou_202308": [
+        {
+            "value": "32℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "25℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "37℃",
+            "label": "极端高温"
+        },
+        {
+            "value": "19℃",
+            "label": "极端低温"
+        },
+        {
+            "value": "52",
+            "label": "平均空气质量指数"
+        },
+        {
+            "value": "21",
+            "label": "空气最好(08/31)"
+        },
+        {
+            "value": "84",
+            "label": "空气最差(08/12)"
+        }
+    ],
+    "suzhou_202309": [
+        {
+            "value": "28℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "22℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "34℃",
+            "label": "极端高温"
+        },
+        {
+            "value": "18℃",
+            "label": "极端低温"
+        },
+        {
+            "value": "42",
+            "label": "平均空气质量指数"
+        },
+        {
+            "value": "20",
+            "label": "空气最好(09/23)"
+        },
+        {
+            "value": "65",
+            "label": "空气最差(09/18)"
+        }
+    ],
+    "suzhou_202310": [
+        {
+            "value": "24℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "16℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "28℃",
+            "label": "极端高温"
+        },
+        {
+            "value": "11℃",
+            "label": "极端低温"
+        },
+        {
+            "value": "62",
+            "label": "平均空气质量指数"
+        },
+        {
+            "value": "26",
+            "label": "空气最好(10/07)"
+        },
+        {
+            "value": "99",
+            "label": "空气最差(10/26)"
+        }
+    ],
+    "suzhou_202311": [
+        {
+            "value": "18℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "9℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "29℃",
+            "label": "极端高温"
+        },
+        {
+            "value": "3℃",
+            "label": "极端低温"
+        },
+        {
+            "value": "74",
+            "label": "平均空气质量指数"
+        },
+        {
+            "value": "29",
+            "label": "空气最好(11/10)"
+        },
+        {
+            "value": "119",
+            "label": "空气最差(11/23)"
+        }
+    ],
+    "suzhou_202312": [
+        {
+            "value": "9℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "2℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "23℃",
+            "label": "极端高温"
+        },
+        {
+            "value": "-5℃",
+            "label": "极端低温"
+        },
+        {
+            "value": "106",
+            "label": "平均空气质量指数"
+        },
+        {
+            "value": "0",
+            "label": "空气最好(12/01)"
+        },
+        {
+            "value": "212",
+            "label": "空气最差(12/31)"
+        }
+    ],
+    "beijing_202301": [
+        {
+            "value": "3℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "-7℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "14℃",
+            "label": "极端高温"
+        },
+        {
+            "value": "-14℃",
+            "label": "极端低温"
+        },
+        {
+            "value": "105",
+            "label": "平均空气质量指数"
+        },
+        {
+            "value": "0",
+            "label": "空气最好(01/08)"
+        },
+        {
+            "value": "211",
+            "label": "空气最差(01/05)"
+        }
+    ],
+    "beijing_202302": [
+        {
+            "value": "6℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "-3℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "14℃",
+            "label": "极端高温"
+        },
+        {
+            "value": "-8℃",
+            "label": "极端低温"
+        },
+        {
+            "value": "105",
+            "label": "平均空气质量指数"
+        },
+        {
+            "value": "12",
+            "label": "空气最好(02/20)"
+        },
+        {
+            "value": "199",
+            "label": "空气最差(02/11)"
+        }
+    ],
+    "beijing_202303": [
+        {
+            "value": "16℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "3℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "27℃",
+            "label": "极端高温"
+        },
+        {
+            "value": "-3℃",
+            "label": "极端低温"
+        },
+        {
+            "value": "181",
+            "label": "平均空气质量指数"
+        },
+        {
+            "value": "24",
+            "label": "空气最好(03/01)"
+        },
+        {
+            "value": "338",
+            "label": "空气最差(03/22)"
+        }
+    ],
+    "beijing_202304": [
+        {
+            "value": "19℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "9℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "28℃",
+            "label": "极端高温"
+        },
+        {
+            "value": "4℃",
+            "label": "极端低温"
+        },
+        {
+            "value": "257",
+            "label": "平均空气质量指数"
+        },
+        {
+            "value": "30",
+            "label": "空气最好(04/07)"
+        },
+        {
+            "value": "484",
+            "label": "空气最差(04/13)"
+        }
+    ],
+    "beijing_202305": [
+        {
+            "value": "26℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "15℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "34℃",
+            "label": "极端高温"
+        },
+        {
+            "value": "11℃",
+            "label": "极端低温"
+        },
+        {
+            "value": "79",
+            "label": "平均空气质量指数"
+        },
+        {
+            "value": "25",
+            "label": "空气最好(05/05)"
+        },
+        {
+            "value": "134",
+            "label": "空气最差(05/20)"
+        }
+    ],
+    "beijing_202306": [
+        {
+            "value": "33℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "20℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "41℃",
+            "label": "极端高温"
+        },
+        {
+            "value": "10℃",
+            "label": "极端低温"
+        },
+        {
+            "value": "49",
+            "label": "平均空气质量指数"
+        },
+        {
+            "value": "0",
+            "label": "空气最好(06/27)"
+        },
+        {
+            "value": "98",
+            "label": "空气最差(06/18)"
+        }
+    ],
+    "beijing_202307": [
+        {
+            "value": "33℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "23℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "41℃",
+            "label": "极端高温"
+        },
+        {
+            "value": "21℃",
+            "label": "极端低温"
+        },
+        {
+            "value": "53",
+            "label": "平均空气质量指数"
+        },
+        {
+            "value": "12",
+            "label": "空气最好(07/30)"
+        },
+        {
+            "value": "94",
+            "label": "空气最差(07/02)"
+        }
+    ],
+    "beijing_202308": [
+        {
+            "value": "30℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "22℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "36℃",
+            "label": "极端高温"
+        },
+        {
+            "value": "10℃",
+            "label": "极端低温"
+        },
+        {
+            "value": "41",
+            "label": "平均空气质量指数"
+        },
+        {
+            "value": "0",
+            "label": "空气最好(08/26)"
+        },
+        {
+            "value": "83",
+            "label": "空气最差(08/10)"
+        }
+    ],
+    "beijing_202309": [
+        {
+            "value": "27℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "17℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "32℃",
+            "label": "极端高温"
+        },
+        {
+            "value": "11℃",
+            "label": "极端低温"
+        },
+        {
+            "value": "71",
+            "label": "平均空气质量指数"
+        },
+        {
+            "value": "23",
+            "label": "空气最好(09/30)"
+        },
+        {
+            "value": "120",
+            "label": "空气最差(09/08)"
+        }
+    ],
+    "beijing_202310": [
+        {
+            "value": "22℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "9℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "27℃",
+            "label": "极端高温"
+        },
+        {
+            "value": "5℃",
+            "label": "极端低温"
+        },
+        {
+            "value": "99",
+            "label": "平均空气质量指数"
+        },
+        {
+            "value": "20",
+            "label": "空气最好(10/04)"
+        },
+        {
+            "value": "179",
+            "label": "空气最差(10/29)"
+        }
+    ],
+    "beijing_202311": [
+        {
+            "value": "9℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "0℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "22℃",
+            "label": "极端高温"
+        },
+        {
+            "value": "-8℃",
+            "label": "极端低温"
+        },
+        {
+            "value": "105",
+            "label": "平均空气质量指数"
+        },
+        {
+            "value": "17",
+            "label": "空气最好(11/11)"
+        },
+        {
+            "value": "193",
+            "label": "空气最差(11/01)"
+        }
+    ],
+    "beijing_202312": [
+        {
+            "value": "1℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "-7℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "12℃",
+            "label": "极端高温"
+        },
+        {
+            "value": "-16℃",
+            "label": "极端低温"
+        },
+        {
+            "value": "12",
+            "label": "平均空气质量指数"
+        },
+        {
+            "value": "0",
+            "label": "空气最好(12/01)"
+        },
+        {
+            "value": "25",
+            "label": "空气最差(12/31)"
+        }
+    ],
+    "guangzhou_202301": [
+        {
+            "value": "18℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "10℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "28℃",
+            "label": "极端高温"
+        },
+        {
+            "value": "4℃",
+            "label": "极端低温"
+        },
+        {
+            "value": "59",
+            "label": "平均空气质量指数"
+        },
+        {
+            "value": "13",
+            "label": "空气最好(01/15)"
+        },
+        {
+            "value": "105",
+            "label": "空气最差(01/22)"
+        }
+    ],
+    "guangzhou_202302": [
+        {
+            "value": "22℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "13℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "27℃",
+            "label": "极端高温"
+        },
+        {
+            "value": "7℃",
+            "label": "极端低温"
+        },
+        {
+            "value": "72",
+            "label": "平均空气质量指数"
+        },
+        {
+            "value": "16",
+            "label": "空气最好(02/13)"
+        },
+        {
+            "value": "129",
+            "label": "空气最差(02/23)"
+        }
+    ],
+    "guangzhou_202303": [
+        {
+            "value": "23℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "15℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "29℃",
+            "label": "极端高温"
+        },
+        {
+            "value": "11℃",
+            "label": "极端低温"
+        },
+        {
+            "value": "51",
+            "label": "平均空气质量指数"
+        },
+        {
+            "value": "14",
+            "label": "空气最好(03/26)"
+        },
+        {
+            "value": "89",
+            "label": "空气最差(03/01)"
+        }
+    ],
+    "guangzhou_202304": [
+        {
+            "value": "26℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "19℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "33℃",
+            "label": "极端高温"
+        },
+        {
+            "value": "16℃",
+            "label": "极端低温"
+        },
+        {
+            "value": "47",
+            "label": "平均空气质量指数"
+        },
+        {
+            "value": "23",
+            "label": "空气最好(04/25)"
+        },
+        {
+            "value": "72",
+            "label": "空气最差(04/16)"
+        }
+    ],
+    "guangzhou_202305": [
+        {
+            "value": "29℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "23℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "38℃",
+            "label": "极端高温"
+        },
+        {
+            "value": "19℃",
+            "label": "极端低温"
+        },
+        {
+            "value": "47",
+            "label": "平均空气质量指数"
+        },
+        {
+            "value": "23",
+            "label": "空气最好(05/12)"
+        },
+        {
+            "value": "72",
+            "label": "空气最差(05/15)"
+        }
+    ],
+    "guangzhou_202306": [
+        {
+            "value": "32℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "25℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "37℃",
+            "label": "极端高温"
+        },
+        {
+            "value": "25℃",
+            "label": "极端低温"
+        },
+        {
+            "value": "46",
+            "label": "平均空气质量指数"
+        },
+        {
+            "value": "17",
+            "label": "空气最好(06/27)"
+        },
+        {
+            "value": "75",
+            "label": "空气最差(06/02)"
+        }
+    ],
+    "guangzhou_202307": [
+        {
+            "value": "34℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "26℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "38℃",
+            "label": "极端高温"
+        },
+        {
+            "value": "24℃",
+            "label": "极端低温"
+        },
+        {
+            "value": "42",
+            "label": "平均空气质量指数"
+        },
+        {
+            "value": "15",
+            "label": "空气最好(07/17)"
+        },
+        {
+            "value": "70",
+            "label": "空气最差(07/15)"
+        }
+    ],
+    "guangzhou_202308": [
+        {
+            "value": "32℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "25℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "36℃",
+            "label": "极端高温"
+        },
+        {
+            "value": "24℃",
+            "label": "极端低温"
+        },
+        {
+            "value": "46",
+            "label": "平均空气质量指数"
+        },
+        {
+            "value": "23",
+            "label": "空气最好(08/27)"
+        },
+        {
+            "value": "69",
+            "label": "空气最差(08/03)"
+        }
+    ],
+    "guangzhou_202309": [
+        {
+            "value": "31℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "24℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "35℃",
+            "label": "极端高温"
+        },
+        {
+            "value": "24℃",
+            "label": "极端低温"
+        },
+        {
+            "value": "37",
+            "label": "平均空气质量指数"
+        },
+        {
+            "value": "15",
+            "label": "空气最好(09/07)"
+        },
+        {
+            "value": "60",
+            "label": "空气最差(09/23)"
+        }
+    ],
+    "guangzhou_202310": [
+        {
+            "value": "28℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "21℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "35℃",
+            "label": "极端高温"
+        },
+        {
+            "value": "17℃",
+            "label": "极端低温"
+        },
+        {
+            "value": "50",
+            "label": "平均空气质量指数"
+        },
+        {
+            "value": "17",
+            "label": "空气最好(10/10)"
+        },
+        {
+            "value": "83",
+            "label": "空气最差(10/25)"
+        }
+    ],
+    "guangzhou_202311": [
+        {
+            "value": "26℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "15℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "31℃",
+            "label": "极端高温"
+        },
+        {
+            "value": "10℃",
+            "label": "极端低温"
+        },
+        {
+            "value": "54",
+            "label": "平均空气质量指数"
+        },
+        {
+            "value": "18",
+            "label": "空气最好(11/12)"
+        },
+        {
+            "value": "91",
+            "label": "空气最差(11/23)"
+        }
+    ],
+    "guangzhou_202312": [
+        {
+            "value": "20℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "11℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "30℃",
+            "label": "极端高温"
+        },
+        {
+            "value": "3℃",
+            "label": "极端低温"
+        },
+        {
+            "value": "44",
+            "label": "平均空气质量指数"
+        },
+        {
+            "value": "0",
+            "label": "空气最好(12/01)"
+        },
+        {
+            "value": "89",
+            "label": "空气最差(12/31)"
+        }
+    ],
+    "yancheng_202101": [
+        {
+            "value": "7℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "0℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "16℃",
+            "label": "极端高温"
+        },
+        {
+            "value": "-11℃",
+            "label": "极端低温"
+        },
+        {
+            "value": "99",
+            "label": "平均空气质量指数"
+        },
+        {
+            "value": "30",
+            "label": "空气最好(01/19)"
+        },
+        {
+            "value": "168",
+            "label": "空气最差(01/31)"
+        }
+    ],
+    "yancheng_202102": [
+        {
+            "value": "13℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "3℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "26℃",
+            "label": "极端高温"
+        },
+        {
+            "value": "-5℃",
+            "label": "极端低温"
+        },
+        {
+            "value": "83",
+            "label": "平均空气质量指数"
+        },
+        {
+            "value": "27",
+            "label": "空气最好(02/28)"
+        },
+        {
+            "value": "139",
+            "label": "空气最差(02/03)"
+        }
+    ],
+    "yancheng_202103": [
+        {
+            "value": "14℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "6℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "23℃",
+            "label": "极端高温"
+        },
+        {
+            "value": "-1℃",
+            "label": "极端低温"
+        },
+        {
+            "value": "262",
+            "label": "平均空气质量指数"
+        },
+        {
+            "value": "25",
+            "label": "空气最好(03/05)"
+        },
+        {
+            "value": "500",
+            "label": "空气最差(03/29)"
+        }
+    ],
+    "yancheng_202104": [
+        {
+            "value": "18℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "10℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "24℃",
+            "label": "极端高温"
+        },
+        {
+            "value": "3℃",
+            "label": "极端低温"
+        },
+        {
+            "value": "196",
+            "label": "平均空气质量指数"
+        },
+        {
+            "value": "23",
+            "label": "空气最好(04/02)"
+        },
+        {
+            "value": "370",
+            "label": "空气最差(04/16)"
+        }
+    ],
+    "yancheng_202105": [
+        {
+            "value": "24℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "16℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "33℃",
+            "label": "极端高温"
+        },
+        {
+            "value": "10℃",
+            "label": "极端低温"
+        },
+        {
+            "value": "57",
+            "label": "平均空气质量指数"
+        },
+        {
+            "value": "15",
+            "label": "空气最好(05/15)"
+        },
+        {
+            "value": "100",
+            "label": "空气最差(05/07)"
+        }
+    ],
+    "yancheng_202106": [
+        {
+            "value": "30℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "21℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "37℃",
+            "label": "极端高温"
+        },
+        {
+            "value": "14℃",
+            "label": "极端低温"
+        },
+        {
+            "value": "41",
+            "label": "平均空气质量指数"
+        },
+        {
+            "value": "14",
+            "label": "空气最好(06/28)"
+        },
+        {
+            "value": "68",
+            "label": "空气最差(06/05)"
+        }
+    ],
+    "yancheng_202107": [
+        {
+            "value": "31℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "24℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "37℃",
+            "label": "极端高温"
+        },
+        {
+            "value": "22℃",
+            "label": "极端低温"
+        },
+        {
+            "value": "41",
+            "label": "平均空气质量指数"
+        },
+        {
+            "value": "9",
+            "label": "空气最好(07/26)"
+        },
+        {
+            "value": "74",
+            "label": "空气最差(07/11)"
+        }
+    ],
+    "yancheng_202108": [
+        {
+            "value": "30℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "23℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "35℃",
+            "label": "极端高温"
+        },
+        {
+            "value": "19℃",
+            "label": "极端低温"
+        },
+        {
+            "value": "41",
+            "label": "平均空气质量指数"
+        },
+        {
+            "value": "15",
+            "label": "空气最好(08/03)"
+        },
+        {
+            "value": "67",
+            "label": "空气最差(08/21)"
+        }
+    ],
+    "yancheng_202109": [
+        {
+            "value": "28℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "21℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "32℃",
+            "label": "极端高温"
+        },
+        {
+            "value": "17℃",
+            "label": "极端低温"
+        },
+        {
+            "value": "32",
+            "label": "平均空气质量指数"
+        },
+        {
+            "value": "13",
+            "label": "空气最好(09/26)"
+        },
+        {
+            "value": "51",
+            "label": "空气最差(09/22)"
+        }
+    ],
+    "yancheng_202110": [
+        {
+            "value": "21℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "13℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "31℃",
+            "label": "极端高温"
+        },
+        {
+            "value": "2℃",
+            "label": "极端低温"
+        },
+        {
+            "value": "72",
+            "label": "平均空气质量指数"
+        },
+        {
+            "value": "13",
+            "label": "空气最好(10/10)"
+        },
+        {
+            "value": "131",
+            "label": "空气最差(10/14)"
+        }
+    ],
+    "yancheng_202111": [
+        {
+            "value": "16℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "6℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "21℃",
+            "label": "极端高温"
+        },
+        {
+            "value": "0℃",
+            "label": "极端低温"
+        },
+        {
+            "value": "67",
+            "label": "平均空气质量指数"
+        },
+        {
+            "value": "24",
+            "label": "空气最好(11/06)"
+        },
+        {
+            "value": "110",
+            "label": "空气最差(11/01)"
+        }
+    ],
+    "yancheng_202112": [
+        {
+            "value": "10℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "0℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "17℃",
+            "label": "极端高温"
+        },
+        {
+            "value": "-6℃",
+            "label": "极端低温"
+        },
+        {
+            "value": "93",
+            "label": "平均空气质量指数"
+        },
+        {
+            "value": "16",
+            "label": "空气最好(12/24)"
+        },
+        {
+            "value": "171",
+            "label": "空气最差(12/11)"
+        }
+    ],
+    "dalian_202101": [
+        {
+            "value": "0℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "-5℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "7℃",
+            "label": "极端高温"
+        },
+        {
+            "value": "-16℃",
+            "label": "极端低温"
+        },
+        {
+            "value": "105",
+            "label": "平均空气质量指数"
+        },
+        {
+            "value": "23",
+            "label": "空气最好(01/05)"
+        },
+        {
+            "value": "188",
+            "label": "空气最差(01/23)"
+        }
+    ],
+    "dalian_202102": [
+        {
+            "value": "4℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "-1℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "13℃",
+            "label": "极端高温"
+        },
+        {
+            "value": "-11℃",
+            "label": "极端低温"
+        },
+        {
+            "value": "193",
+            "label": "平均空气质量指数"
+        },
+        {
+            "value": "30",
+            "label": "空气最好(02/07)"
+        },
+        {
+            "value": "357",
+            "label": "空气最差(02/26)"
+        }
+    ],
+    "dalian_202103": [
+        {
+            "value": "9℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "2℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "19℃",
+            "label": "极端高温"
+        },
+        {
+            "value": "-6℃",
+            "label": "极端低温"
+        },
+        {
+            "value": "266",
+            "label": "平均空气质量指数"
+        },
+        {
+            "value": "33",
+            "label": "空气最好(03/21)"
+        },
+        {
+            "value": "500",
+            "label": "空气最差(03/28)"
+        }
+    ],
+    "dalian_202105": [
+        {
+            "value": "20℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "13℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "26℃",
+            "label": "极端高温"
+        },
+        {
+            "value": "9℃",
+            "label": "极端低温"
+        },
+        {
+            "value": "43",
+            "label": "平均空气质量指数"
+        },
+        {
+            "value": "10",
+            "label": "空气最好(05/28)"
+        },
+        {
+            "value": "76",
+            "label": "空气最差(05/23)"
+        }
+    ],
+    "dalian_202106": [
+        {
+            "value": "23℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "17℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "32℃",
+            "label": "极端高温"
+        },
+        {
+            "value": "15℃",
+            "label": "极端低温"
+        },
+        {
+            "value": "45",
+            "label": "平均空气质量指数"
+        },
+        {
+            "value": "13",
+            "label": "空气最好(06/18)"
+        },
+        {
+            "value": "77",
+            "label": "空气最差(06/06)"
+        }
+    ],
+    "dalian_202107": [
+        {
+            "value": "27℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "22℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "32℃",
+            "label": "极端高温"
+        },
+        {
+            "value": "19℃",
+            "label": "极端低温"
+        },
+        {
+            "value": "25",
+            "label": "平均空气质量指数"
+        },
+        {
+            "value": "8",
+            "label": "空气最好(07/23)"
+        },
+        {
+            "value": "42",
+            "label": "空气最差(07/24)"
+        }
+    ],
+    "dalian_202108": [
+        {
+            "value": "27℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "22℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "30℃",
+            "label": "极端高温"
+        },
+        {
+            "value": "20℃",
+            "label": "极端低温"
+        },
+        {
+            "value": "59",
+            "label": "平均空气质量指数"
+        },
+        {
+            "value": "17",
+            "label": "空气最好(08/24)"
+        },
+        {
+            "value": "101",
+            "label": "空气最差(08/28)"
+        }
+    ],
+    "dalian_202109": [
+        {
+            "value": "24℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "19℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "27℃",
+            "label": "极端高温"
+        },
+        {
+            "value": "15℃",
+            "label": "极端低温"
+        },
+        {
+            "value": "53",
+            "label": "平均空气质量指数"
+        },
+        {
+            "value": "10",
+            "label": "空气最好(09/05)"
+        },
+        {
+            "value": "97",
+            "label": "空气最差(09/23)"
+        }
+    ],
+    "dalian_202110": [
+        {
+            "value": "16℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "11℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "24℃",
+            "label": "极端高温"
+        },
+        {
+            "value": "5℃",
+            "label": "极端低温"
+        },
+        {
+            "value": "68",
+            "label": "平均空气质量指数"
+        },
+        {
+            "value": "9",
+            "label": "空气最好(10/10)"
+        },
+        {
+            "value": "127",
+            "label": "空气最差(10/30)"
+        }
+    ],
+    "dalian_202111": [
+        {
+            "value": "9℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "4℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "18℃",
+            "label": "极端高温"
+        },
+        {
+            "value": "0℃",
+            "label": "极端低温"
+        },
+        {
+            "value": "97",
+            "label": "平均空气质量指数"
+        },
+        {
+            "value": "20",
+            "label": "空气最好(11/22)"
+        },
+        {
+            "value": "175",
+            "label": "空气最差(11/18)"
+        }
+    ],
+    "dalian_202112": [
+        {
+            "value": "4℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "-1℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "12℃",
+            "label": "极端高温"
+        },
+        {
+            "value": "-16℃",
+            "label": "极端低温"
+        },
+        {
+            "value": "98",
+            "label": "平均空气质量指数"
+        },
+        {
+            "value": "11",
+            "label": "空气最好(12/16)"
+        },
+        {
+            "value": "185",
+            "label": "空气最差(12/14)"
+        }
+    ],
+    "yancheng_202201": [
+        {
+            "value": "6℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "0℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "11℃",
+            "label": "极端高温"
+        },
+        {
+            "value": "-6℃",
+            "label": "极端低温"
+        },
+        {
+            "value": "107",
+            "label": "平均空气质量指数"
+        },
+        {
+            "value": "22",
+            "label": "空气最好(01/05)"
+        },
+        {
+            "value": "193",
+            "label": "空气最差(01/09)"
+        }
+    ],
+    "yancheng_202202": [
+        {
+            "value": "8℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "0℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "21℃",
+            "label": "极端高温"
+        },
+        {
+            "value": "-4℃",
+            "label": "极端低温"
+        },
+        {
+            "value": "73",
+            "label": "平均空气质量指数"
+        },
+        {
+            "value": "22",
+            "label": "空气最好(02/22)"
+        },
+        {
+            "value": "124",
+            "label": "空气最差(02/12)"
+        }
+    ],
+    "yancheng_202203": [
+        {
+            "value": "16℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "6℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "26℃",
+            "label": "极端高温"
+        },
+        {
+            "value": "1℃",
+            "label": "极端低温"
+        },
+        {
+            "value": "71",
+            "label": "平均空气质量指数"
+        },
+        {
+            "value": "17",
+            "label": "空气最好(03/05)"
+        },
+        {
+            "value": "126",
+            "label": "空气最差(03/21)"
+        }
+    ],
+    "dalian_202104": [
+        {
+            "value": "14℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "8℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "20℃",
+            "label": "极端高温"
+        },
+        {
+            "value": "3℃",
+            "label": "极端低温"
+        },
+        {
+            "value": "133",
+            "label": "平均空气质量指数"
+        },
+        {
+            "value": "23",
+            "label": "空气最好(04/23)"
+        },
+        {
+            "value": "244",
+            "label": "空气最差(04/16)"
+        }
+    ],
+    "yancheng_202204": [
+        {
+            "value": "21℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "10℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "32℃",
+            "label": "极端高温"
+        },
+        {
+            "value": "1℃",
+            "label": "极端低温"
+        },
+        {
+            "value": "53",
+            "label": "平均空气质量指数"
+        },
+        {
+            "value": "15",
+            "label": "空气最好(04/26)"
+        },
+        {
+            "value": "92",
+            "label": "空气最差(04/08)"
+        }
+    ],
+    "yancheng_202205": [
+        {
+            "value": "25℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "15℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "31℃",
+            "label": "极端高温"
+        },
+        {
+            "value": "11℃",
+            "label": "极端低温"
+        },
+        {
+            "value": "55",
+            "label": "平均空气质量指数"
+        },
+        {
+            "value": "18",
+            "label": "空气最好(05/10)"
+        },
+        {
+            "value": "92",
+            "label": "空气最差(05/11)"
+        }
+    ],
+    "yancheng_202206": [
+        {
+            "value": "31℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "22℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "38℃",
+            "label": "极端高温"
+        },
+        {
+            "value": "16℃",
+            "label": "极端低温"
+        },
+        {
+            "value": "38",
+            "label": "平均空气质量指数"
+        },
+        {
+            "value": "16",
+            "label": "空气最好(06/07)"
+        },
+        {
+            "value": "61",
+            "label": "空气最差(06/17)"
+        }
+    ],
+    "yancheng_202207": [
+        {
+            "value": "32℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "25℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "37℃",
+            "label": "极端高温"
+        },
+        {
+            "value": "22℃",
+            "label": "极端低温"
+        },
+        {
+            "value": "29",
+            "label": "平均空气质量指数"
+        },
+        {
+            "value": "10",
+            "label": "空气最好(07/04)"
+        },
+        {
+            "value": "48",
+            "label": "空气最差(07/22)"
+        }
+    ],
+    "yancheng_202208": [
+        {
+            "value": "33℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "26℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "39℃",
+            "label": "极端高温"
+        },
+        {
+            "value": "19℃",
+            "label": "极端低温"
+        },
+        {
+            "value": "35",
+            "label": "平均空气质量指数"
+        },
+        {
+            "value": "14",
+            "label": "空气最好(08/23)"
+        },
+        {
+            "value": "57",
+            "label": "空气最差(08/17)"
+        }
+    ],
+    "yancheng_202209": [
+        {
+            "value": "26℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "18℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "34℃",
+            "label": "极端高温"
+        },
+        {
+            "value": "12℃",
+            "label": "极端低温"
+        },
+        {
+            "value": "43",
+            "label": "平均空气质量指数"
+        },
+        {
+            "value": "12",
+            "label": "空气最好(09/14)"
+        },
+        {
+            "value": "74",
+            "label": "空气最差(09/06)"
+        }
+    ],
+    "yancheng_202210": [
+        {
+            "value": "21℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "11℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "38℃",
+            "label": "极端高温"
+        },
+        {
+            "value": "6℃",
+            "label": "极端低温"
+        },
+        {
+            "value": "45",
+            "label": "平均空气质量指数"
+        },
+        {
+            "value": "13",
+            "label": "空气最好(10/17)"
+        },
+        {
+            "value": "78",
+            "label": "空气最差(10/16)"
+        }
+    ],
+    "yancheng_202211": [
+        {
+            "value": "17℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "9℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "23℃",
+            "label": "极端高温"
+        },
+        {
+            "value": "-1℃",
+            "label": "极端低温"
+        },
+        {
+            "value": "57",
+            "label": "平均空气质量指数"
+        },
+        {
+            "value": "16",
+            "label": "空气最好(11/21)"
+        },
+        {
+            "value": "98",
+            "label": "空气最差(11/15)"
+        }
+    ],
+    "yancheng_202212": [
+        {
+            "value": "7℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "0℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "12℃",
+            "label": "极端高温"
+        },
+        {
+            "value": "-6℃",
+            "label": "极端低温"
+        },
+        {
+            "value": "75",
+            "label": "平均空气质量指数"
+        },
+        {
+            "value": "18",
+            "label": "空气最好(12/28)"
+        },
+        {
+            "value": "133",
+            "label": "空气最差(12/30)"
+        }
+    ],
+    "dalian_202201": [
+        {
+            "value": "0℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "-5℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "6℃",
+            "label": "极端高温"
+        },
+        {
+            "value": "-12℃",
+            "label": "极端低温"
+        },
+        {
+            "value": "75",
+            "label": "平均空气质量指数"
+        },
+        {
+            "value": "8",
+            "label": "空气最好(01/10)"
+        },
+        {
+            "value": "142",
+            "label": "空气最差(01/01)"
+        }
+    ],
+    "dalian_202301": [
+        {
+            "value": "1℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "-4℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "9℃",
+            "label": "极端高温"
+        },
+        {
+            "value": "-16℃",
+            "label": "极端低温"
+        },
+        {
+            "value": "226",
+            "label": "平均空气质量指数"
+        },
+        {
+            "value": "22",
+            "label": "空气最好(01/23)"
+        },
+        {
+            "value": "430",
+            "label": "空气最差(01/21)"
+        }
+    ],
+    "dalian_202302": [
+        {
+            "value": "3℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "-1℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "11℃",
+            "label": "极端高温"
+        },
+        {
+            "value": "-6℃",
+            "label": "极端低温"
+        },
+        {
+            "value": "144",
+            "label": "平均空气质量指数"
+        },
+        {
+            "value": "31",
+            "label": "空气最好(02/02)"
+        },
+        {
+            "value": "258",
+            "label": "空气最差(02/05)"
+        }
+    ],
+    "dalian_202303": [
+        {
+            "value": "10℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "3℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "21℃",
+            "label": "极端高温"
+        },
+        {
+            "value": "-1℃",
+            "label": "极端低温"
+        },
+        {
+            "value": "115",
+            "label": "平均空气质量指数"
+        },
+        {
+            "value": "47",
+            "label": "空气最好(03/17)"
+        },
+        {
+            "value": "184",
+            "label": "空气最差(03/23)"
+        }
+    ],
+    "dalian_202304": [
+        {
+            "value": "15℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "8℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "20℃",
+            "label": "极端高温"
+        },
+        {
+            "value": "6℃",
+            "label": "极端低温"
+        },
+        {
+            "value": "106",
+            "label": "平均空气质量指数"
+        },
+        {
+            "value": "28",
+            "label": "空气最好(04/26)"
+        },
+        {
+            "value": "184",
+            "label": "空气最差(04/11)"
+        }
+    ],
+    "dalian_202305": [
+        {
+            "value": "21℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "14℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "29℃",
+            "label": "极端高温"
+        },
+        {
+            "value": "11℃",
+            "label": "极端低温"
+        },
+        {
+            "value": "118",
+            "label": "平均空气质量指数"
+        },
+        {
+            "value": "33",
+            "label": "空气最好(05/18)"
+        },
+        {
+            "value": "203",
+            "label": "空气最差(05/21)"
+        }
+    ],
+    "dalian_202306": [
+        {
+            "value": "25℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "19℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "29℃",
+            "label": "极端高温"
+        },
+        {
+            "value": "17℃",
+            "label": "极端低温"
+        },
+        {
+            "value": "44",
+            "label": "平均空气质量指数"
+        },
+        {
+            "value": "27",
+            "label": "空气最好(06/26)"
+        },
+        {
+            "value": "62",
+            "label": "空气最差(06/07)"
+        }
+    ],
+    "dalian_202307": [
+        {
+            "value": "28℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "22℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "32℃",
+            "label": "极端高温"
+        },
+        {
+            "value": "21℃",
+            "label": "极端低温"
+        },
+        {
+            "value": "42",
+            "label": "平均空气质量指数"
+        },
+        {
+            "value": "11",
+            "label": "空气最好(07/29)"
+        },
+        {
+            "value": "74",
+            "label": "空气最差(07/06)"
+        }
+    ],
+    "dalian_202308": [
+        {
+            "value": "28℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "22℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "32℃",
+            "label": "极端高温"
+        },
+        {
+            "value": "18℃",
+            "label": "极端低温"
+        },
+        {
+            "value": "49",
+            "label": "平均空气质量指数"
+        },
+        {
+            "value": "21",
+            "label": "空气最好(08/21)"
+        },
+        {
+            "value": "78",
+            "label": "空气最差(08/30)"
+        }
+    ],
+    "dalian_202309": [
+        {
+            "value": "26℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "19℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "31℃",
+            "label": "极端高温"
+        },
+        {
+            "value": "16℃",
+            "label": "极端低温"
+        },
+        {
+            "value": "49",
+            "label": "平均空气质量指数"
+        },
+        {
+            "value": "22",
+            "label": "空气最好(09/16)"
+        },
+        {
+            "value": "76",
+            "label": "空气最差(09/27)"
+        }
+    ],
+    "dalian_202310": [
+        {
+            "value": "20℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "13℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "24℃",
+            "label": "极端高温"
+        },
+        {
+            "value": "8℃",
+            "label": "极端低温"
+        },
+        {
+            "value": "58",
+            "label": "平均空气质量指数"
+        },
+        {
+            "value": "17",
+            "label": "空气最好(10/20)"
+        },
+        {
+            "value": "100",
+            "label": "空气最差(10/25)"
+        }
+    ],
+    "dalian_202311": [
+        {
+            "value": "8℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "2℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "24℃",
+            "label": "极端高温"
+        },
+        {
+            "value": "-5℃",
+            "label": "极端低温"
+        },
+        {
+            "value": "100",
+            "label": "平均空气质量指数"
+        },
+        {
+            "value": "16",
+            "label": "空气最好(11/10)"
+        },
+        {
+            "value": "184",
+            "label": "空气最差(11/01)"
+        }
+    ],
+    "dalian_202312": [
+        {
+            "value": "0℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "-4℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "15℃",
+            "label": "极端高温"
+        },
+        {
+            "value": "-14℃",
+            "label": "极端低温"
+        },
+        {
+            "value": "43",
+            "label": "平均空气质量指数"
+        },
+        {
+            "value": "0",
+            "label": "空气最好(12/01)"
+        },
+        {
+            "value": "86",
+            "label": "空气最差(12/31)"
+        }
+    ],
+    "yancheng_202301": [
+        {
+            "value": "9℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "-1℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "20℃",
+            "label": "极端高温"
+        },
+        {
+            "value": "-8℃",
+            "label": "极端低温"
+        },
+        {
+            "value": "96",
+            "label": "平均空气质量指数"
+        },
+        {
+            "value": "20",
+            "label": "空气最好(01/15)"
+        },
+        {
+            "value": "173",
+            "label": "空气最差(01/06)"
+        }
+    ],
+    "yancheng_202302": [
+        {
+            "value": "8℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "1℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "16℃",
+            "label": "极端高温"
+        },
+        {
+            "value": "-2℃",
+            "label": "极端低温"
+        },
+        {
+            "value": "49",
+            "label": "平均空气质量指数"
+        },
+        {
+            "value": "16",
+            "label": "空气最好(02/09)"
+        },
+        {
+            "value": "83",
+            "label": "空气最差(02/18)"
+        }
+    ],
+    "yancheng_202303": [
+        {
+            "value": "17℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "6℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "27℃",
+            "label": "极端高温"
+        },
+        {
+            "value": "0℃",
+            "label": "极端低温"
+        },
+        {
+            "value": "114",
+            "label": "平均空气质量指数"
+        },
+        {
+            "value": "29",
+            "label": "空气最好(03/17)"
+        },
+        {
+            "value": "200",
+            "label": "空气最差(03/23)"
+        }
+    ],
+    "yancheng_202304": [
+        {
+            "value": "20℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "10℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "28℃",
+            "label": "极端高温"
+        },
+        {
+            "value": "3℃",
+            "label": "极端低温"
+        },
+        {
+            "value": "137",
+            "label": "平均空气质量指数"
+        },
+        {
+            "value": "29",
+            "label": "空气最好(04/04)"
+        },
+        {
+            "value": "246",
+            "label": "空气最差(04/11)"
+        }
+    ],
+    "yancheng_202305": [
+        {
+            "value": "24℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "15℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "33℃",
+            "label": "极端高温"
+        },
+        {
+            "value": "8℃",
+            "label": "极端低温"
+        },
+        {
+            "value": "77",
+            "label": "平均空气质量指数"
+        },
+        {
+            "value": "21",
+            "label": "空气最好(05/05)"
+        },
+        {
+            "value": "134",
+            "label": "空气最差(05/22)"
+        }
+    ],
+    "yancheng_202306": [
+        {
+            "value": "29℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "20℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "34℃",
+            "label": "极端高温"
+        },
+        {
+            "value": "15℃",
+            "label": "极端低温"
+        },
+        {
+            "value": "50",
+            "label": "平均空气质量指数"
+        },
+        {
+            "value": "16",
+            "label": "空气最好(06/19)"
+        },
+        {
+            "value": "84",
+            "label": "空气最差(06/09)"
+        }
+    ],
+    "yancheng_202307": [
+        {
+            "value": "31℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "25℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "35℃",
+            "label": "极端高温"
+        },
+        {
+            "value": "23℃",
+            "label": "极端低温"
+        },
+        {
+            "value": "33",
+            "label": "平均空气质量指数"
+        },
+        {
+            "value": "11",
+            "label": "空气最好(07/18)"
+        },
+        {
+            "value": "55",
+            "label": "空气最差(07/16)"
+        }
+    ],
+    "yancheng_202308": [
+        {
+            "value": "31℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "24℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "35℃",
+            "label": "极端高温"
+        },
+        {
+            "value": "19℃",
+            "label": "极端低温"
+        },
+        {
+            "value": "51",
+            "label": "平均空气质量指数"
+        },
+        {
+            "value": "20",
+            "label": "空气最好(08/01)"
+        },
+        {
+            "value": "82",
+            "label": "空气最差(08/12)"
+        }
+    ],
+    "yancheng_202309": [
+        {
+            "value": "27℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "20℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "31℃",
+            "label": "极端高温"
+        },
+        {
+            "value": "17℃",
+            "label": "极端低温"
+        },
+        {
+            "value": "35",
+            "label": "平均空气质量指数"
+        },
+        {
+            "value": "17",
+            "label": "空气最好(09/05)"
+        },
+        {
+            "value": "54",
+            "label": "空气最差(09/27)"
+        }
+    ],
+    "yancheng_202310": [
+        {
+            "value": "23℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "13℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "27℃",
+            "label": "极端高温"
+        },
+        {
+            "value": "7℃",
+            "label": "极端低温"
+        },
+        {
+            "value": "46",
+            "label": "平均空气质量指数"
+        },
+        {
+            "value": "19",
+            "label": "空气最好(10/07)"
+        },
+        {
+            "value": "73",
+            "label": "空气最差(10/26)"
+        }
+    ],
+    "yancheng_202311": [
+        {
+            "value": "16℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "6℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "29℃",
+            "label": "极端高温"
+        },
+        {
+            "value": "-2℃",
+            "label": "极端低温"
+        },
+        {
+            "value": "71",
+            "label": "平均空气质量指数"
+        },
+        {
+            "value": "24",
+            "label": "空气最好(11/10)"
+        },
+        {
+            "value": "119",
+            "label": "空气最差(11/23)"
+        }
+    ],
+    "yancheng_202312": [
+        {
+            "value": "7℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "0℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "23℃",
+            "label": "极端高温"
+        },
+        {
+            "value": "-8℃",
+            "label": "极端低温"
+        },
+        {
+            "value": "105",
+            "label": "平均空气质量指数"
+        },
+        {
+            "value": "0",
+            "label": "空气最好(12/01)"
+        },
+        {
+            "value": "211",
+            "label": "空气最差(12/31)"
+        }
+    ],
+    "dalian_202202": [
+        {
+            "value": "1℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "-3℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "12℃",
+            "label": "极端高温"
+        },
+        {
+            "value": "-9℃",
+            "label": "极端低温"
+        },
+        {
+            "value": "75",
+            "label": "平均空气质量指数"
+        },
+        {
+            "value": "13",
+            "label": "空气最好(02/19)"
+        },
+        {
+            "value": "137",
+            "label": "空气最差(02/24)"
+        }
+    ],
+    "dalian_202203": [
+        {
+            "value": "9℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "2℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "14℃",
+            "label": "极端高温"
+        },
+        {
+            "value": "-2℃",
+            "label": "极端低温"
+        },
+        {
+            "value": "94",
+            "label": "平均空气质量指数"
+        },
+        {
+            "value": "16",
+            "label": "空气最好(03/16)"
+        },
+        {
+            "value": "172",
+            "label": "空气最差(03/23)"
+        }
+    ],
+    "dalian_202204": [
+        {
+            "value": "16℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "9℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "21℃",
+            "label": "极端高温"
+        },
+        {
+            "value": "4℃",
+            "label": "极端低温"
+        },
+        {
+            "value": "49",
+            "label": "平均空气质量指数"
+        },
+        {
+            "value": "20",
+            "label": "空气最好(04/12)"
+        },
+        {
+            "value": "78",
+            "label": "空气最差(04/03)"
+        }
+    ],
+    "dalian_202205": [
+        {
+            "value": "22℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "13℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "30℃",
+            "label": "极端高温"
+        },
+        {
+            "value": "9℃",
+            "label": "极端低温"
+        },
+        {
+            "value": "68",
+            "label": "平均空气质量指数"
+        },
+        {
+            "value": "15",
+            "label": "空气最好(05/02)"
+        },
+        {
+            "value": "122",
+            "label": "空气最差(05/23)"
+        }
+    ],
+    "dalian_202206": [
+        {
+            "value": "24℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "18℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "33℃",
+            "label": "极端高温"
+        },
+        {
+            "value": "14℃",
+            "label": "极端低温"
+        },
+        {
+            "value": "42",
+            "label": "平均空气质量指数"
+        },
+        {
+            "value": "13",
+            "label": "空气最好(06/20)"
+        },
+        {
+            "value": "72",
+            "label": "空气最差(06/18)"
+        }
+    ],
+    "dalian_202207": [
+        {
+            "value": "28℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "22℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "36℃",
+            "label": "极端高温"
+        },
+        {
+            "value": "21℃",
+            "label": "极端低温"
+        },
+        {
+            "value": "42",
+            "label": "平均空气质量指数"
+        },
+        {
+            "value": "12",
+            "label": "空气最好(07/31)"
+        },
+        {
+            "value": "72",
+            "label": "空气最差(07/08)"
+        }
+    ],
+    "dalian_202208": [
+        {
+            "value": "27℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "22℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "32℃",
+            "label": "极端高温"
+        },
+        {
+            "value": "18℃",
+            "label": "极端低温"
+        },
+        {
+            "value": "39",
+            "label": "平均空气质量指数"
+        },
+        {
+            "value": "12",
+            "label": "空气最好(08/15)"
+        },
+        {
+            "value": "66",
+            "label": "空气最差(08/05)"
+        }
+    ],
+    "dalian_202209": [
+        {
+            "value": "24℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "18℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "29℃",
+            "label": "极端高温"
+        },
+        {
+            "value": "12℃",
+            "label": "极端低温"
+        },
+        {
+            "value": "44",
+            "label": "平均空气质量指数"
+        },
+        {
+            "value": "7",
+            "label": "空气最好(09/18)"
+        },
+        {
+            "value": "81",
+            "label": "空气最差(09/08)"
+        }
+    ],
+    "dalian_202210": [
+        {
+            "value": "15℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "10℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "22℃",
+            "label": "极端高温"
+        },
+        {
+            "value": "6℃",
+            "label": "极端低温"
+        },
+        {
+            "value": "136",
+            "label": "平均空气质量指数"
+        },
+        {
+            "value": "7",
+            "label": "空气最好(10/10)"
+        },
+        {
+            "value": "266",
+            "label": "空气最差(10/15)"
+        }
+    ],
+    "dalian_202211": [
+        {
+            "value": "11℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "5℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "16℃",
+            "label": "极端高温"
+        },
+        {
+            "value": "-9℃",
+            "label": "极端低温"
+        },
+        {
+            "value": "75",
+            "label": "平均空气质量指数"
+        },
+        {
+            "value": "17",
+            "label": "空气最好(11/04)"
+        },
+        {
+            "value": "133",
+            "label": "空气最差(11/17)"
+        }
+    ],
+    "dalian_202212": [
+        {
+            "value": "0℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "-4℃",
+            "label": "平均高温"
+        },
+        {
+            "value": "9℃",
+            "label": "极端高温"
+        },
+        {
+            "value": "-11℃",
+            "label": "极端低温"
+        },
+        {
+            "value": "102",
+            "label": "平均空气质量指数"
+        },
+        {
+            "value": "11",
+            "label": "空气最好(12/03)"
+        },
+        {
+            "value": "194",
+            "label": "空气最差(12/08)"
+        }
+    ]
+};
+
+// 生成图表
+const chartDataByCity = convertDataToChartFormat(allData);
+createTempChar(chartDataByCity);
+createExtremTempChar(chartDataByCity);
+createAirQualityChar(chartDataByCity);
+</script>
+
+</body>
+</html>
